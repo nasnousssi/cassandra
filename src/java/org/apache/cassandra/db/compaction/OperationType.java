@@ -26,6 +26,8 @@ public enum OperationType
     CLEANUP("Cleanup", true, 1),
     SCRUB("Scrub", true, 1),
     UPGRADE_SSTABLES("Upgrade sstables", true, 1),
+
+    DOWNGRADE_SSTABLES("Downgrade sstables", true, 1),
     VERIFY("Verify", false, 1),
     MAJOR_COMPACTION("Major compaction", true, 1),
     RELOCATE("Relocate sstables to correct disk", false, 1),
