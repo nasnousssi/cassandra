@@ -840,6 +840,16 @@ public final class SystemKeyspace
         return true;
     }
 
+    public static synchronized boolean deletePreferredIP(InetAddressAndPort ep)
+    {
+        String req = "INSERT INTO system.%s (peer, preferred_ip) VALUES (?, ?)";
+        executeInternal(String.format(req, LEGACY_PEERS), ep.getAddress(), null);
+        req = "INSERT INTO system.%s (peer, peer_port, preferred_ip, preferred_port) VALUES (?, ?, ?, ?)";
+        executeInternal(String.format(req, PEERS_V2), ep.getAddress(), ep.getPort(), null, null);
+        forceBlockingFlush(LEGACY_PEERS, PEERS_V2);
+        return true;
+    }
+
     public static synchronized void updatePeerInfo(InetAddressAndPort ep, String columnName, Object value)
     {
         if (ep.equals(FBUtilities.getBroadcastAddressAndPort()))

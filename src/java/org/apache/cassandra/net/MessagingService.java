@@ -388,6 +388,12 @@ public class MessagingService extends MessagingServiceMBeanImpl
         send(message.responseWith(response), message.respondTo());
     }
 
+    public void closeOutboundNow(InetAddressAndPort to)
+    {
+        OutboundConnections pool = channelManagers.get(to);
+        if (pool != null)
+            closeOutboundNow(pool);
+    }
     public <V> void respondWithFailure(RequestFailureReason reason, Message<?> message)
     {
         send(Message.failureResponse(message.id(), message.expiresAtNanos(), reason), message.respondTo());

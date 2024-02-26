@@ -22,6 +22,7 @@ import java.net.UnknownHostException;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.net.ConnectionCategory;
 import org.apache.cassandra.net.MessagingService;
@@ -127,7 +128,16 @@ public class ReconnectableSnitchHelper implements IEndpointStateChangeSubscriber
 
     public void onDead(InetAddressAndPort endpoint, EndpointState state)
     {
-        // do nothing.
+        if(preferLocal){
+            if (state.getApplicationState(ApplicationState.INTERNAL_ADDRESS_AND_PORT) != null)
+                state.removeApplicationState(ApplicationState.INTERNAL_ADDRESS_AND_PORT);
+            if (state.getApplicationState(ApplicationState.INTERNAL_IP) != null)
+                state.removeApplicationState(ApplicationState.INTERNAL_IP);
+
+            SystemKeyspace.deletePreferredIP(endpoint);
+            MessagingService.instance().closeOutboundNow(endpoint);
+        }
+
     }
 
     public void onRemove(InetAddressAndPort endpoint)
