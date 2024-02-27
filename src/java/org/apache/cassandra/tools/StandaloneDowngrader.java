@@ -19,6 +19,7 @@ package org.apache.cassandra.tools;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -40,7 +41,10 @@ import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.schema.KeyspaceMetadata;
+import org.apache.cassandra.schema.Keyspaces;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.OutputHandler;
 
@@ -65,15 +69,47 @@ public class StandaloneDowngrader
         try
         {
             // load keyspace descriptions.
-            Schema.instance.loadFromDisk();
+           Schema.instance.loadFromDisk();
 
-            if (Schema.instance.getTableMetadataRef(options.keyspace, options.cf) == null)
+            //List<KeyspaceMetadata> key = Schema.instance.getKeyspaces().stream().map(Schema.instance::getKeyspaceMetadata).collect(Collectors.toList());
+
+            //Schema.instance.getUserKeyspaces();
+            //System.out.println("waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+
+            List<KeyspaceMetadata> allKeysapces = new ArrayList<>();
+
+
+
+            Keyspaces keyspaces = Schema.instance.distributedKeyspaces();
+            Keyspaces localKeyspace = Schema.instance.getLocalKeyspaces();
+
+
+
+            for (KeyspaceMetadata keyspace : keyspaces) {
+                allKeysapces.add(keyspace);
+            }
+
+
+            for (KeyspaceMetadata local : localKeyspace) {
+                allKeysapces.add(local);
+            }
+
+
+
+
+            for (KeyspaceMetadata k : allKeysapces){
+
+
+                for(TableMetadata t : k.tables){
+
+            if (Schema.instance.getTableMetadataRef(k.name, t.name) == null)
                 throw new IllegalArgumentException(String.format("Unknown keyspace/table %s.%s",
-                                                                 options.keyspace,
-                                                                 options.cf));
+                                                                 k.name,
+                                                                 t.name));
 
-            Keyspace keyspace = Keyspace.openWithoutSSTables(options.keyspace);
-            ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(options.cf);
+            Keyspace keyspace = Keyspace.openWithoutSSTables(k.name);
+            ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(t.name);
 
             OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
@@ -113,7 +149,7 @@ public class StandaloneDowngrader
             }
 
             int numSSTables = readers.size();
-            handler.output("Found " + numSSTables + " sstables that need downgrading.");
+            handler.output("Found " + numSSTables + " sstables that need downgrading for keyspace : "  + k.name  + " and table : " + t.name);
 
             for (SSTableReader sstable : readers)
             {
@@ -135,6 +171,12 @@ public class StandaloneDowngrader
                     sstable.selfRef().ensureReleased();
                 }
             }
+
+
+
+                }
+            }
+
             CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
             LifecycleTransaction.waitForDeletions();
             System.exit(0);
