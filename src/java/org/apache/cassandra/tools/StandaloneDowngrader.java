@@ -56,11 +56,15 @@ public class StandaloneDowngrader
     private static final String TOOL_NAME = "sstabledowngrader";
     private static final String DEBUG_OPTION  = "debug";
     private static final String HELP_OPTION  = "help";
-    private static final String KEEP_SOURCE = "keep-source";
+    private static final String DOWNGRADE_ALL = "all";
+    private static final String KEEP_SOURCE = "keep";
+
+    private static final String CASSANDRA_4_VERSION = "nb";
 
     public static void main(String args[])
     {
         Options options = Options.parseArgs(args);
+        OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
         if (TEST_UTIL_ALLOW_TOOL_REINIT_FOR_TEST.getBoolean())
             DatabaseDescriptor.toolInitialization(false); //Necessary for testing
         else
@@ -111,12 +115,12 @@ public class StandaloneDowngrader
             Keyspace keyspace = Keyspace.openWithoutSSTables(k.name);
             ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(t.name);
 
-            OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
+
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
-            if (options.snapshot != null)
-                lister.onlyBackups(true).snapshots(options.snapshot);
-            else
-                lister.includeBackups(false);
+//            if (options.snapshot != null)
+//                lister.onlyBackups(true).snapshots(options.snapshot);
+//            else
+//                lister.includeBackups(false);
 
             Collection<SSTableReader> readers = new ArrayList<>();
 
@@ -155,7 +159,7 @@ public class StandaloneDowngrader
             {
                 try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.DOWNGRADE_SSTABLES, sstable))
                 {
-                    Downgrader downgrader = new Downgrader(options.version, cfs, txn, handler);
+                    Downgrader downgrader = new Downgrader(CASSANDRA_4_VERSION, cfs, txn, handler);
                     downgrader.downgrade(options.keepSource);
                 }
                 catch (Exception e)
@@ -177,6 +181,7 @@ public class StandaloneDowngrader
                 }
             }
 
+            handler.output("Downgrade complete");
             CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
             LifecycleTransaction.waitForDeletions();
             System.exit(0);
@@ -192,22 +197,26 @@ public class StandaloneDowngrader
 
     private static class Options
     {
-        public final String keyspace;
-        public final String cf;
-        public final String snapshot;
+        //public final String keyspace;
+        //public final String cf;
+        //public final String snapshot;
 
         public boolean debug;
         public boolean keepSource;
 
         public String version;
+        private Options(){
 
-        private Options(String keyspace, String cf, String snapshot, String version)
-        {
-            this.keyspace = keyspace;
-            this.cf = cf;
-            this.snapshot = snapshot;
-            this.version = version;
         }
+
+
+//        private Options(String keyspace, String cf, String snapshot, String version)
+//        {
+//            this.keyspace = keyspace;
+//            this.cf = cf;
+//            this.snapshot = snapshot;
+//            this.version = version;
+//        }
 
         public static Options parseArgs(String cmdArgs[])
         {
@@ -224,23 +233,23 @@ public class StandaloneDowngrader
                 }
 
                 String[] args = cmd.getArgs();
-                if (args.length >= 5 || args.length < 3)
+                if (!cmd.hasOption(DOWNGRADE_ALL))
                 {
-                    String msg = args.length < 2 ? "Missing arguments" : "Too many arguments";
+                    String msg = "you need to add --all option to start the downgrade";
                     errorMsg(msg, options);
                     System.exit(1);
                 }
 
-                String keyspace = args[0];
-                String cf = args[1];
-                String version = args[2];
-                String snapshot = (args.length == 4) ? args[3] : null;
+//                String keyspace = args[0];
+//                String cf = args[1];
+//                String version = args[2];
+//                String snapshot = (args.length == 4) ? args[3] : null;
 
 
-                Options opts = new Options(keyspace, cf, snapshot, version);
+                Options opts = new Options();
 
-                opts.debug = cmd.hasOption(DEBUG_OPTION);
-                opts.keepSource = cmd.hasOption(KEEP_SOURCE);
+//                opts.debug = cmd.hasOption(DEBUG_OPTION);
+                //opts.keepSource = cmd.hasOption(KEEP_SOURCE);
 
                 return opts;
             }
@@ -263,6 +272,7 @@ public class StandaloneDowngrader
             CmdLineOptions options = new CmdLineOptions();
             options.addOption(null, DEBUG_OPTION,          "display stack traces");
             options.addOption("h",  HELP_OPTION,           "display this help message");
+            options.addOption("a",  DOWNGRADE_ALL,           "do not delete the source sstables");
             options.addOption("k",  KEEP_SOURCE,           "do not delete the source sstables");
             return options;
         }
