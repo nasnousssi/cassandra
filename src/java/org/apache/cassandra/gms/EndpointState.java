@@ -100,6 +100,7 @@ public class EndpointState
     {
         applicationState.get().remove(key);
     }
+
     public Set<Map.Entry<ApplicationState, VersionedValue>> states()
     {
         return applicationState.get().entrySet();

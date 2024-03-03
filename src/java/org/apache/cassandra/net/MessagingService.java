@@ -394,6 +394,7 @@ public class MessagingService extends MessagingServiceMBeanImpl
         if (pool != null)
             closeOutboundNow(pool);
     }
+
     public <V> void respondWithFailure(RequestFailureReason reason, Message<?> message)
     {
         send(Message.failureResponse(message.id(), message.expiresAtNanos(), reason), message.respondTo());
