@@ -75,17 +75,32 @@ public class StandaloneDowngrader
             // load keyspace descriptions.
            Schema.instance.loadFromDisk();
 
+            if (!Schema.instance.waitUntilReady(java.time.Duration.ofMillis(60)))
+                throw new IllegalStateException("Could not achieve schema readiness in " + java.time.Duration.ofMillis(60));
+            //SchemaDiagnostics.schemaLoaded(Schema.instance);
+
+   //     Sets.SetView<String> userkeyspace = Schema.instance.getUserKeyspaces();
+    //        Sets.SetView<String> key = Schema.instance.getKeyspaces();
+
             //List<KeyspaceMetadata> key = Schema.instance.getKeyspaces().stream().map(Schema.instance::getKeyspaceMetadata).collect(Collectors.toList());
 
             //Schema.instance.getUserKeyspaces();
             //System.out.println("waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
+//            Sets.SetView<String> keyss = Schema.instance.getKeyspaces();
+//            Sets.SetView<String> userkeyspaces = Schema.instance.getUserKeyspaces();
+//            Keyspaces distributedSchema = Schema.instance.distributedKeyspaces();
+//            Keyspaces localkeyscpz = Schema.instance.getLocalKeyspaces();
+//            System.out.println("waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+//            System.out.println(keyss);
+            Keyspace.setInitialized();
 
             List<KeyspaceMetadata> allKeysapces = new ArrayList<>();
 
 
 
-            Keyspaces keyspaces = Schema.instance.distributedKeyspaces();
+            System.out.println("ahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh");
+            Keyspaces keyspaces =  Schema.instance.distributedKeyspaces();
             Keyspaces localKeyspace = Schema.instance.getLocalKeyspaces();
 
 
@@ -117,13 +132,11 @@ public class StandaloneDowngrader
 
 
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
-//            if (options.snapshot != null)
-//                lister.onlyBackups(true).snapshots(options.snapshot);
-//            else
-//                lister.includeBackups(false);
+
 
             Collection<SSTableReader> readers = new ArrayList<>();
 
+            System.out.println("LOG : Keyspace : " + k.name + " Table : " + t.name);
             // Upgrade sstables in id order
             for (Map.Entry<Descriptor, Set<Component>> entry : lister.sortedList())
             {
@@ -134,6 +147,8 @@ public class StandaloneDowngrader
                 try
                 {
                     SSTableReader sstable = SSTableReader.openNoValidation(entry.getKey(), components, cfs);
+
+                    System.out.println("LOG : SSTABLE : " + sstable.getFilename());
                     if (sstable.descriptor.version.equals(DatabaseDescriptor.getSelectedSSTableFormat().getLatestVersion()))
                     {
                         readers.add(sstable);
@@ -160,11 +175,22 @@ public class StandaloneDowngrader
                 try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.DOWNGRADE_SSTABLES, sstable))
                 {
                     Downgrader downgrader = new Downgrader(CASSANDRA_4_VERSION, cfs, txn, handler);
-                    downgrader.downgrade(options.keepSource);
+                    downgrader.downgrade(false);
+
+
+                    //txn.obsoleteOriginals();
+                    //txn.checkpoint();
+                    //txn.commit();
+
+
+                    // Trigger a cleanup operation
+                    //txn.obsoleteOriginals();
+                    //txn.finish();
+
                 }
                 catch (Exception e)
                 {
-                    System.err.println(String.format("Error upgrading %s: %s", sstable, e.getMessage()));
+                    System.err.println(String.format("Error in downgrading %s: %s", sstable, e.getMessage()));
                     if (options.debug)
                         e.printStackTrace(System.err);
                 }
@@ -173,6 +199,9 @@ public class StandaloneDowngrader
                     // we should have released this through commit of the LifecycleTransaction,
                     // but in case the upgrade failed (or something else went wrong) make sure we don't retain a reference
                     sstable.selfRef().ensureReleased();
+                    handler.output("Downgrade complete");
+                    CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
+                    LifecycleTransaction.waitForDeletions();
                 }
             }
 
@@ -180,6 +209,27 @@ public class StandaloneDowngrader
 
                 }
             }
+//            for (KeyspaceMetadata k : allKeysapces)
+//            {
+//
+//                //Schema.instance.loadOffline(k);
+//                for (TableMetadata t : k.tables)
+//                {
+//                    Keyspace keyspace = Keyspace.openWithoutSSTables(k.name);
+//                    ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(t.name);
+//                    try
+//                    {
+//                        CompactionManager.instance.performCleanup(cfs, 3);
+//                    }
+//                    catch (Exception e)
+//                    {
+//                        System.err.println("Error during cleanup: " + e.getMessage());
+//                        if (options.debug)
+//                            e.printStackTrace(System.err);
+//                    }
+//                }
+//            }
+
 
             handler.output("Downgrade complete");
             CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
