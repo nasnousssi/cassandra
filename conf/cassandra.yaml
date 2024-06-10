@@ -331,8 +331,8 @@ partitioner: org.apache.cassandra.dht.Murmur3Partitioner
 # directories are specified, Cassandra will spread data evenly across
 # them by partitioning the token ranges.
 # If not set, the default directory is $CASSANDRA_HOME/data/data.
-# data_file_directories:
-#     - /var/lib/cassandra/data
+data_file_directories:
+    - /Users/anisbenbrahim/Documents/projet/ericsson/downgrade_tool_for_cassandra_5/cassandra5/data/data
 
 # Directory were Cassandra should store the data of the local system keyspaces.
 # By default Cassandra will store the data of the local system keyspaces in the first of the data directories specified
@@ -2170,4 +2170,4 @@ drop_compact_storage_enabled: false
 #   and ensures stability. If Cassandra was started at the previous version by accident, a node with disabled
 #   compatibility mode would no longer toggle behaviors as when it was running in the UPGRADING mode.
 #
-storage_compatibility_mode: CASSANDRA_4
+storage_compatibility_mode: UPGRADING

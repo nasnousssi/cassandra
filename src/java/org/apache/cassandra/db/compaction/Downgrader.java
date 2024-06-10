@@ -35,6 +35,8 @@ import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.schema.TableMetadata;
+
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.OutputHandler;
 
@@ -78,6 +80,14 @@ public class Downgrader
     {
         MetadataCollector sstableMetadataCollector = new MetadataCollector(cfs.getComparator());
         sstableMetadataCollector.sstableLevel(sstable.getSSTableLevel());
+
+
+
+        outputHandler.output("=======================================++> cfs: " + cfs.toString());
+        TableMetadata metadataRef = cfs.metadata();
+
+
+        outputHandler.output("=======================================++> metadataRef: " + metadataRef.toString());
 
        // newSSTableDescriptor(directory, DatabaseDescriptor.getSelectedSSTableFormat().getLatestVersion())
 
