@@ -77,10 +77,14 @@ public class StandaloneDowngraderSingle
                                                                  options.cf));
 
             Keyspace keyspace = Keyspace.openWithoutSSTables(options.keyspace);
+
+            System.out.println(String.format("Downgrading sstables for %s.%s", options.keyspace, options.cf));
             ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(options.cf);
 
             OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
+
+            System.out.println(lister);
             if (options.snapshot != null)
                 lister.onlyBackups(true).snapshots(options.snapshot);
             else
@@ -91,6 +95,7 @@ public class StandaloneDowngraderSingle
             // Upgrade sstables in id order
             for (Map.Entry<Descriptor, Set<Component>> entry : lister.sortedList())
             {
+                System.out.println(entry.getKey());
                 Set<Component> components = entry.getValue();
                 if (!components.containsAll(entry.getKey().getFormat().primaryComponents()))
                     continue;
@@ -100,10 +105,11 @@ public class StandaloneDowngraderSingle
                     SSTableReader sstable = SSTableReader.openNoValidation(entry.getKey(), components, cfs);
                     if (sstable.descriptor.version.equals(DatabaseDescriptor.getSelectedSSTableFormat().getLatestVersion()))
                     {
-                        sstable.selfRef().release();
+                        readers.add(sstable);
                         continue;
                     }
-                    readers.add(sstable);
+
+                    sstable.selfRef().release();
                 }
                 catch (Exception e)
                 {
@@ -119,7 +125,7 @@ public class StandaloneDowngraderSingle
 
             for (SSTableReader sstable : readers)
             {
-                try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.UPGRADE_SSTABLES, sstable))
+                try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.DOWNGRADE_SSTABLES, sstable))
                 {
                     Downgrader downgrader = new Downgrader(CASSANDRA_4_VERSION, cfs, txn, handler);
                     downgrader.downgrade(options.keepSource);
