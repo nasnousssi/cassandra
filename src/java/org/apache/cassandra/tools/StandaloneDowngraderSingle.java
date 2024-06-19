@@ -20,9 +20,11 @@ package org.apache.cassandra.tools;
 import java.util.ArrayList;
 import java.util.Collection;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -141,6 +143,32 @@ public class StandaloneDowngraderSingle
                     // we should have released this through commit of the LifecycleTransaction,
                     // but in case the upgrade failed (or something else went wrong) make sure we don't retain a reference
                     sstable.selfRef().ensureReleased();
+
+                }
+            }
+
+
+            if(!options.keepSource)
+            {
+                // Get all SSTables
+                Collection<SSTableReader> sstables = cfs.getLiveSSTables();
+
+                // Filter out the obsolete SSTables
+                List<SSTableReader> obsoleteSSTables = sstables.stream()
+                                                               .filter(SSTableReader::isMarkedCompacted)
+                                                               .collect(Collectors.toList());
+                // Delete the obsolete SSTables
+                try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.UNKNOWN, obsoleteSSTables))
+                {
+                    if (txn == null)
+                        throw new IllegalStateException("Failed to mark SSTables as compacting");
+
+                    for (SSTableReader sstable : obsoleteSSTables)
+                    {
+                        sstable.selfRef().release();
+                    }
+
+                    txn.finish();
                 }
             }
             CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);

@@ -108,8 +108,6 @@ public class Downgrader
 
     public void downgrade(boolean keepOriginals)
     {
-        System.out.println("=======================================++> Downgrader.downgrade");
-        System.out.println(keepOriginals);
         outputHandler.output("Downgrade " + sstable);
         long nowInSec = FBUtilities.nowInSeconds();
         try (SSTableRewriter writer = SSTableRewriter.construct(cfs, transaction, keepOriginals, CompactionTask.getMaxDataAge(transaction.originals()));
