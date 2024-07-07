@@ -84,6 +84,14 @@ public class StandaloneDowngraderSingle
             ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(options.cf);
 
             OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
+
+            if(options.keyspace.equals("system_schema") && options.cf.equals("dropped_columns"))
+            {
+                Downgrader downgrader = new Downgrader(CASSANDRA_4_VERSION, cfs, handler);
+                downgrader.removeExtracColumn();
+
+            }
+
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
 
             System.out.println(lister);

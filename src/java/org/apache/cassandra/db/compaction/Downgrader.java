@@ -24,10 +24,13 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.Sets;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.io.sstable.CQLSSTableWriter;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableRewriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -35,8 +38,12 @@ import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 
+import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.OutputHandler;
 
@@ -74,6 +81,27 @@ public class Downgrader
         long estimatedTotalKeys = Math.max(cfs.metadata().params.minIndexInterval, SSTableReader.getApproximateKeyCount(Collections.singletonList(this.sstable)));
         long estimatedSSTables = Math.max(1, SSTableReader.getTotalBytes(Collections.singletonList(this.sstable)) / strategyManager.getMaxSSTableBytes());
         this.estimatedRows = (long) Math.ceil((double) estimatedTotalKeys / estimatedSSTables);
+    }
+
+    public Downgrader(String version, ColumnFamilyStore cfs, OutputHandler outputHandler)
+    {
+        this.cfs = cfs;
+
+        this.outputHandler = outputHandler;
+
+        this.version = version;
+
+        this.directory = cfs.getDirectories().getDirectoryForNewSSTables();
+
+        this.controller = new UpgradeController(cfs);
+
+        this.strategyManager = cfs.getCompactionStrategyManager();
+
+        this.transaction = null;
+
+        this.sstable = null;
+
+        this.estimatedRows = 0L;
     }
 
     private SSTableWriter createCompactionWriter(StatsMetadata metadata)
@@ -133,6 +161,16 @@ public class Downgrader
         }
     }
 
+
+    public void removeExtracColumn() throws Exception
+    {
+        try(CQLSSTableWriter droppedColumnsWriter = writerFor("dropped_columns"))
+        {
+            writerDroppedColumns(droppedColumnsWriter, tableMetadata(DropColumns, "dropped_columns"));
+
+        }
+    }
+
     private static class UpgradeController extends CompactionController
     {
         public UpgradeController(ColumnFamilyStore cfs)
@@ -145,6 +183,55 @@ public class Downgrader
         {
             return time -> false;
         }
+    }
+
+public static final String DroppedColumnInsert = "INSERT INTO system_schema.dropped_columns (keyspace_name, table_name, column_name, dropped_time, kind, type) VALUES (?, ?, ?, ?, ?, ?)";
+
+private void writerDroppedColumns(CQLSSTableWriter droppedColumnsWriter, TableMetadata tableMetadata) throws Exception
+    {
+        droppedColumnsWriter.addRow("system", "compaction_history", "compaction_properties", new  java.util.Date(Clock.Global.currentTimeMillis()), "regular", "frozen<map<text, text>>");
+    }
+
+
+    private static TableId tableIdOf(String table){
+
+        return Schema.instance.getKeyspaceMetadata("system_schema").getTableOrViewNullable(table).id;
+    }
+
+    private static final String DropColumns =
+
+                    "CREATE TABLE system_schema_v4.dropped_columns (" +
+                    "keyspace_name text," +
+                    "table_name text," +
+                    "column_name text," +
+                    "dropped_time timestamp," +
+                    "kind text," +
+                    "type text," +
+                    "PRIMARY KEY (keyspace_name, table_name, column_name))";
+
+
+
+
+    private static TableMetadata tableMetadata(String schema, String table){
+        CreateTableStatement.Raw schemaStatement = QueryProcessor.parseStatement(String.format(schema, "system_schema"), CreateTableStatement.Raw.class, "CREATE TABLE");
+        ClientState state = ClientState.forInternalCalls();
+        CreateTableStatement statement = schemaStatement.prepare(state);
+        statement.validate(ClientState.forInternalCalls());
+
+        TableMetadata.Builder builder = statement.builder(org.apache.cassandra.schema.Types.rawBuilder("system_schema").build());
+        return builder
+               .id(tableIdOf(table))
+               .build();
+
+    }
+
+    private CQLSSTableWriter writerFor(String table){
+
+        return CQLSSTableWriter.builder()
+                              .inDirectory(directory)
+                              .forTable(String.format(DropColumns, "system_schema_v4"))
+                              .using(DroppedColumnInsert)
+                              .build();
     }
 }
 
