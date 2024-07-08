@@ -134,10 +134,30 @@ public class Downgrader
                          .build(transaction, cfs);
     }
 
+
+//    private ColumnFamilyStore removeColumn(ColumnFamilyStore cfs, String columnName) {
+//        String keyspaceName = cfs.keyspace.getName();
+//        String tableName = cfs.getTableName();
+//
+//        // Execute the ALTER TABLE statement to drop the column
+//        String query = String.format("ALTER TABLE %s.%s DROP %s", keyspaceName, tableName, columnName);
+//        QueryProcessor.process(query, ConsistencyLevel.ALL);
+//
+//        // Get and return the updated ColumnFamilyStore
+//        return Keyspace.open(keyspaceName).getColumnFamilyStore(tableName);
+//    }
+
     public void downgrade(boolean keepOriginals)
     {
         outputHandler.output("Downgrade " + sstable);
         long nowInSec = FBUtilities.nowInSeconds();
+
+//        if (cfs.metadata.name.equals("compaction_history")) {
+//            // Remove the compaction_properties column
+//            // Note: You need to implement the removeColumn method
+//            cfs = removeColumn(cfs, "compaction_properties");
+//        }
+
         try (SSTableRewriter writer = SSTableRewriter.construct(cfs, transaction, keepOriginals, CompactionTask.getMaxDataAge(transaction.originals()));
              AbstractCompactionStrategy.ScannerList scanners = strategyManager.getScanners(transaction.originals());
              CompactionIterator iter = new CompactionIterator(transaction.opType(), scanners.scanners, controller, nowInSec, nextTimeUUID()))
@@ -185,7 +205,7 @@ public class Downgrader
         }
     }
 
-public static final String DroppedColumnInsert = "INSERT INTO system_schema.dropped_columns (keyspace_name, table_name, column_name, dropped_time, kind, type) VALUES (?, ?, ?, ?, ?, ?)";
+public static final String DroppedColumnInsert = "INSERT INTO system_schema_v4.dropped_columns (keyspace_name, table_name, column_name, dropped_time, kind, type) VALUES (?, ?, ?, ?, ?, ?)";
 
 private void writerDroppedColumns(CQLSSTableWriter droppedColumnsWriter, TableMetadata tableMetadata) throws Exception
     {
@@ -200,7 +220,7 @@ private void writerDroppedColumns(CQLSSTableWriter droppedColumnsWriter, TableMe
 
     private static final String DropColumns =
 
-                    "CREATE TABLE system_schema_v4.dropped_columns (" +
+                    "CREATE TABLE %s.dropped_columns (" +
                     "keyspace_name text," +
                     "table_name text," +
                     "column_name text," +
@@ -213,12 +233,12 @@ private void writerDroppedColumns(CQLSSTableWriter droppedColumnsWriter, TableMe
 
 
     private static TableMetadata tableMetadata(String schema, String table){
-        CreateTableStatement.Raw schemaStatement = QueryProcessor.parseStatement(String.format(schema, "system_schema"), CreateTableStatement.Raw.class, "CREATE TABLE");
+        CreateTableStatement.Raw schemaStatement = QueryProcessor.parseStatement(String.format(schema, "system_schema_v4"), CreateTableStatement.Raw.class, "CREATE TABLE");
         ClientState state = ClientState.forInternalCalls();
         CreateTableStatement statement = schemaStatement.prepare(state);
         statement.validate(ClientState.forInternalCalls());
 
-        TableMetadata.Builder builder = statement.builder(org.apache.cassandra.schema.Types.rawBuilder("system_schema").build());
+        TableMetadata.Builder builder = statement.builder(org.apache.cassandra.schema.Types.rawBuilder("system_schema_v4").build());
         return builder
                .id(tableIdOf(table))
                .build();
