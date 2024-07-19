@@ -47,6 +47,7 @@ import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.OutputHandler;
 
+import static org.apache.cassandra.db.Keyspace.setInitialized;
 import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 
 public class Downgrader
@@ -157,7 +158,7 @@ public class Downgrader
 //            // Note: You need to implement the removeColumn method
 //            cfs = removeColumn(cfs, "compaction_properties");
 //        }
-
+        setInitialized();
         try (SSTableRewriter writer = SSTableRewriter.construct(cfs, transaction, keepOriginals, CompactionTask.getMaxDataAge(transaction.originals()));
              AbstractCompactionStrategy.ScannerList scanners = strategyManager.getScanners(transaction.originals());
              CompactionIterator iter = new CompactionIterator(transaction.opType(), scanners.scanners, controller, nowInSec, nextTimeUUID()))

@@ -89,12 +89,13 @@ public class StandaloneDowngraderSingle
             {
                 Downgrader downgrader = new Downgrader(CASSANDRA_4_VERSION, cfs, handler);
                 downgrader.removeExtracColumn();
+                cfs.loadNewSSTables("system_schema", "dropped_columns");
 
             }
 
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
 
-            System.out.println(lister);
+
             if (options.snapshot != null)
                 lister.onlyBackups(true).snapshots(options.snapshot);
             else
@@ -105,7 +106,7 @@ public class StandaloneDowngraderSingle
             // Upgrade sstables in id order
             for (Map.Entry<Descriptor, Set<Component>> entry : lister.sortedList())
             {
-                System.out.println(entry.getKey());
+
                 Set<Component> components = entry.getValue();
                 if (!components.containsAll(entry.getKey().getFormat().primaryComponents()))
                     continue;
@@ -118,6 +119,67 @@ public class StandaloneDowngraderSingle
                         readers.add(sstable);
                         continue;
                     }
+
+
+
+
+
+                   // SecondaryIndexManager indexManager = new SecondaryIndexManager(cfs);
+
+
+
+                    // rebuild index.db file
+
+
+//                    Map<Index.IndexBuildingSupport, Set<Index>> byType = new HashMap<>();
+//                    for (Index index : indexes) {
+//
+//
+//                        // Get the ColumnFamilyStore for the index
+////                        Index.IndexBuildingSupport buildOrRecoveryTask = index.getBuildTaskSupport();
+////                        Set<Index> stored = byType.computeIfAbsent(buildOrRecoveryTask, i -> new HashSet<>());
+////                        stored.add(index);
+//
+////                ColumnFamilyStore indexCfs = index.getBackingTable().orElse(null);
+////                if (indexCfs != null) {
+////                    // Get the SSTables for the index
+////                    indexCfs.rebuildSecondaryIndex(index.getIndexMetadata().name);
+////                    // Now you can process the SSTables for the index
+////                }
+//                    }
+
+
+
+
+//                    List<Future<?>> futures = new ArrayList<>(byType.size());
+//                    byType.forEach((buildingSupport, groupedIndexes) ->
+//                                   {
+//                                       SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(cfs, groupedIndexes, readers, true);
+//                                       final AsyncPromise<Object> build = new AsyncPromise<>();
+//                                       CompactionManager.instance.submitIndexBuild(builder).addCallback(new FutureCallback<Object>()
+//                                       {
+//                                           @Override
+//                                           public void onFailure(Throwable t)
+//                                           {
+////                                               logAndMarkIndexesFailed(groupedIndexes, t, false);
+////                                               unbuiltIndexes.addAll(groupedIndexes);
+//                                               build.tryFailure(t);
+//                                           }
+//
+//                                           @Override
+//                                           public void onSuccess(Object o)
+//                                           {
+//                                               groupedIndexes.forEach(i -> markIndexBuilt(i, true));
+////                                               logger.info("Index build of {} completed", getIndexNames(groupedIndexes));
+//                                               builtIndexes.addAll(groupedIndexes);
+//                                               build.trySuccess(o);
+//                                           }
+//                                       });
+//                                       futures.add(build);
+//                                   });
+//
+//                    // Finally wait for the index builds to finish and flush the indexes that built successfully
+//                    FBUtilities.waitOnFutures(futures);
 
                     sstable.selfRef().release();
                 }
@@ -179,6 +241,46 @@ public class StandaloneDowngraderSingle
                     txn.finish();
                 }
             }
+
+
+            // REBUILD INDEXES
+//            Collection<Index> indexes = cfs.indexManager.listIndexes();
+//
+//
+//            Set<String> indexNames = indexes.stream()
+//                                            .map(index -> index.getIndexMetadata().name)
+//                                            .collect(Collectors.toSet());
+
+// Appeler la méthode pour reconstruire les index
+//            cfs.indexManager.rebuildIndexesBlocking(indexNames);
+
+//            String[] indexNames = indexes.stream()
+//                                         .map(Index::getIndexMetadata)
+//                                         .map(indexMetadata -> indexMetadata.name)
+//                                         .toArray(String[]::new);
+//            String[] indices = asList(indexNames).stream()
+//                                                 .map(p -> isIndexColumnFamily(p) ? getIndexName(p) : p)
+//                                                 .collect(toList())
+//                                                 .toArray(new String[indexNames.length]);
+//
+//            //ColumnFamilyStore.rebuildSecondaryIndex(options.keyspace, options.cf, indices);
+//
+//            List<Future<?>> futures = new ArrayList<>();
+//
+//            for (Index idx : indexes){
+//                futures.add(cfs.indexManager.buildIndex(idx));
+//            }
+//
+//
+//            for (Future<?> future : futures) {
+//                try {
+//                    future.get();
+//                } catch (InterruptedException | ExecutionException e) {
+//                    // Handle exception
+//                }
+//            }
+            //rebuildIndexesBlocking(Sets.newHashSet(Arrays.asList(indices)));
+
             CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
             LifecycleTransaction.waitForDeletions();
             System.exit(0);
