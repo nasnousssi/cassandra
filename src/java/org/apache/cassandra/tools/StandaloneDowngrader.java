@@ -1,28 +1,32 @@
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file * distributed with this work for additional information
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
  * regarding copyright ownership.  The ASF licenses this file
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package org.apache.cassandra.tools;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -38,33 +42,32 @@ import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.Downgrader;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.sstable.SSTableIdFactory;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.KeyspaceMetadata;
-import org.apache.cassandra.schema.Keyspaces;
+import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.schema.Schema;
-import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.OutputHandler;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_UTIL_ALLOW_TOOL_REINIT_FOR_TEST;
+import static org.apache.cassandra.index.internal.CassandraIndex.indexCfsMetadata;
 import static org.apache.cassandra.tools.BulkLoader.CmdLineOptions;
-
 public class StandaloneDowngrader
 {
-    private static final String TOOL_NAME = "sstabledowngrader";
-    private static final String DEBUG_OPTION  = "debug";
-    private static final String HELP_OPTION  = "help";
-    private static final String DOWNGRADE_ALL = "all";
-    private static final String KEEP_SOURCE = "keep";
+    private static final String TOOL_NAME = "sstabledowngrade";
+    private static final String DEBUG_OPTION = "debug";
+    private static final String HELP_OPTION = "help";
 
     private static final String CASSANDRA_4_VERSION = "nb";
 
     public static void main(String args[])
     {
         Options options = Options.parseArgs(args);
-        OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
         if (TEST_UTIL_ALLOW_TOOL_REINIT_FOR_TEST.getBoolean())
             DatabaseDescriptor.toolInitialization(false); //Necessary for testing
         else
@@ -73,73 +76,34 @@ public class StandaloneDowngrader
         try
         {
             // load keyspace descriptions.
-           Schema.instance.loadFromDisk();
+            Schema.instance.loadFromDisk();
 
-            if (!Schema.instance.waitUntilReady(java.time.Duration.ofMillis(60)))
-                throw new IllegalStateException("Could not achieve schema readiness in " + java.time.Duration.ofMillis(60));
-            //SchemaDiagnostics.schemaLoaded(Schema.instance);
-
-   //     Sets.SetView<String> userkeyspace = Schema.instance.getUserKeyspaces();
-    //        Sets.SetView<String> key = Schema.instance.getKeyspaces();
-
-            //List<KeyspaceMetadata> key = Schema.instance.getKeyspaces().stream().map(Schema.instance::getKeyspaceMetadata).collect(Collectors.toList());
-
-            //Schema.instance.getUserKeyspaces();
-            //System.out.println("waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-//            Sets.SetView<String> keyss = Schema.instance.getKeyspaces();
-//            Sets.SetView<String> userkeyspaces = Schema.instance.getUserKeyspaces();
-//            Keyspaces distributedSchema = Schema.instance.distributedKeyspaces();
-//            Keyspaces localkeyscpz = Schema.instance.getLocalKeyspaces();
-//            System.out.println("waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-//            System.out.println(keyss);
-            Keyspace.setInitialized();
-
-            List<KeyspaceMetadata> allKeysapces = new ArrayList<>();
-
-
-
-            System.out.println("ahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh");
-            Keyspaces keyspaces =  Schema.instance.distributedKeyspaces();
-            Keyspaces localKeyspace = Schema.instance.getLocalKeyspaces();
-
-
-
-            for (KeyspaceMetadata keyspace : keyspaces) {
-                allKeysapces.add(keyspace);
-            }
-
-
-            for (KeyspaceMetadata local : localKeyspace) {
-                allKeysapces.add(local);
-            }
-
-
-
-
-            for (KeyspaceMetadata k : allKeysapces){
-
-
-                for(TableMetadata t : k.tables){
-
-            if (Schema.instance.getTableMetadataRef(k.name, t.name) == null)
+            if (Schema.instance.getTableMetadataRef(options.keyspace, options.cf) == null)
                 throw new IllegalArgumentException(String.format("Unknown keyspace/table %s.%s",
-                                                                 k.name,
-                                                                 t.name));
+                                                                 options.keyspace,
+                                                                 options.cf));
 
-            Keyspace keyspace = Keyspace.openWithoutSSTables(k.name);
-            ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(t.name);
+            Keyspace keyspace = Keyspace.openWithoutSSTables(options.keyspace);
 
+            System.out.println(String.format("Downgrading sstables for %s.%s", options.keyspace, options.cf));
+            ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(options.cf);
+
+            OutputHandler handler = new OutputHandler.SystemOutput(false, options.debug);
 
             Directories.SSTableLister lister = cfs.getDirectories().sstableLister(Directories.OnTxnErr.THROW);
 
 
+            if (options.snapshot != null)
+                lister.onlyBackups(true).snapshots(options.snapshot);
+            else
+                lister.includeBackups(false);
+
             Collection<SSTableReader> readers = new ArrayList<>();
 
-            System.out.println("LOG : Keyspace : " + k.name + " Table : " + t.name);
-            // Upgrade sstables in id order
+            // Downgrade sstables in id order
             for (Map.Entry<Descriptor, Set<Component>> entry : lister.sortedList())
             {
+
                 Set<Component> components = entry.getValue();
                 if (!components.containsAll(entry.getKey().getFormat().primaryComponents()))
                     continue;
@@ -147,16 +111,13 @@ public class StandaloneDowngrader
                 try
                 {
                     SSTableReader sstable = SSTableReader.openNoValidation(entry.getKey(), components, cfs);
-
-                    System.out.println("LOG : SSTABLE : " + sstable.getFilename());
                     if (sstable.descriptor.version.equals(DatabaseDescriptor.getSelectedSSTableFormat().getLatestVersion()))
                     {
                         readers.add(sstable);
                         continue;
                     }
+
                     sstable.selfRef().release();
-
-
                 }
                 catch (Exception e)
                 {
@@ -168,70 +129,76 @@ public class StandaloneDowngrader
             }
 
             int numSSTables = readers.size();
-            handler.output("Found " + numSSTables + " sstables that need downgrading for keyspace : "  + k.name  + " and table : " + t.name);
+            handler.output("Found " + numSSTables + " sstables that need downgrading.");
 
             for (SSTableReader sstable : readers)
             {
                 try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.DOWNGRADE_SSTABLES, sstable))
                 {
                     Downgrader downgrader = new Downgrader(CASSANDRA_4_VERSION, cfs, txn, handler);
-                    downgrader.downgrade(false);
-
-
-                    //txn.obsoleteOriginals();
-                    //txn.checkpoint();
-                    //txn.commit();
-
-
-                    // Trigger a cleanup operation
-                    //txn.obsoleteOriginals();
-                    //txn.finish();
-
+                    downgrader.downgrade(options.keepSource);
                 }
                 catch (Exception e)
                 {
-                    System.err.println(String.format("Error in downgrading %s: %s", sstable, e.getMessage()));
+                    System.err.println(String.format("Error downgrading %s: %s", sstable, e.getMessage()));
                     if (options.debug)
                         e.printStackTrace(System.err);
                 }
                 finally
                 {
                     // we should have released this through commit of the LifecycleTransaction,
-                    // but in case the upgrade failed (or something else went wrong) make sure we don't retain a reference
+                    // but in case the downgrade failed (or something else went wrong) make sure we don't retain a reference
                     sstable.selfRef().ensureReleased();
-                    handler.output("Downgrade complete");
-                    CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
-                    LifecycleTransaction.waitForDeletions();
                 }
             }
 
+            Collection<Index> indexes = cfs.indexManager.listIndexes();
+            Collection<SSTableReader> sstablesIdx = new ArrayList<>();
+            for (Index idx : indexes)
+            {
+                //futures.add(cfs.indexManager.buildIndex(idx));
 
 
-                }
+                TableMetadataRef tableRef = TableMetadataRef.forOfflineTools(indexCfsMetadata(cfs.metadata(), idx.getIndexMetadata()));
+                Directories directories = new Directories(tableRef.get());
+
+                Directories.SSTableLister sstableFiles = directories.sstableLister(Directories.OnTxnErr.IGNORE).skipTemporary(true);
+
+
+                ColumnFamilyStore idxcf = new ColumnFamilyStore(keyspace, tableRef.name,
+                                                                directories.getUIDGenerator(SSTableIdFactory.instance.defaultBuilder()),
+                                                                tableRef, directories, true, false, true);
+                sstablesIdx = SSTableReader.openAll(cfs, sstableFiles.list().entrySet(), tableRef);
+
+                deleteObsoleteSSTables(idxcf, sstablesIdx);
+
             }
-//            for (KeyspaceMetadata k : allKeysapces)
-//            {
-//
-//                //Schema.instance.loadOffline(k);
-//                for (TableMetadata t : k.tables)
-//                {
-//                    Keyspace keyspace = Keyspace.openWithoutSSTables(k.name);
-//                    ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(t.name);
-//                    try
-//                    {
-//                        CompactionManager.instance.performCleanup(cfs, 3);
-//                    }
-//                    catch (Exception e)
-//                    {
-//                        System.err.println("Error during cleanup: " + e.getMessage());
-//                        if (options.debug)
-//                            e.printStackTrace(System.err);
-//                    }
-//                }
-//            }
 
 
-            handler.output("Downgrade complete");
+                // Get all SSTables
+                Collection<SSTableReader> sstables = cfs.getLiveSSTables();
+
+
+                // Filter out the obsolete SSTables
+                List<SSTableReader> obsoleteSSTables = sstables.stream()
+                                                               .filter(SSTableReader::isMarkedCompacted)
+                                                               .collect(Collectors.toList());
+
+                //obsoleteSSTables.addAll(sstablesIdx);
+                // Delete the obsolete SSTables
+                try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.UNKNOWN, obsoleteSSTables))
+                {
+                    if (txn == null)
+                        throw new IllegalStateException("Failed to mark SSTables as compacting");
+
+                    for (SSTableReader sstable : obsoleteSSTables)
+                    {
+                        sstable.selfRef().release();
+                    }
+
+                    txn.finish();
+                }
+
             CompactionManager.instance.finishCompactionsAndShutdown(5, TimeUnit.MINUTES);
             LifecycleTransaction.waitForDeletions();
             System.exit(0);
@@ -247,26 +214,19 @@ public class StandaloneDowngrader
 
     private static class Options
     {
-        //public final String keyspace;
-        //public final String cf;
-        //public final String snapshot;
+        public final String keyspace;
+        public final String cf;
+        public final String snapshot;
 
         public boolean debug;
         public boolean keepSource;
 
-        public String version;
-        private Options(){
-
+        private Options(String keyspace, String cf, String snapshot)
+        {
+            this.keyspace = keyspace;
+            this.cf = cf;
+            this.snapshot = snapshot;
         }
-
-
-//        private Options(String keyspace, String cf, String snapshot, String version)
-//        {
-//            this.keyspace = keyspace;
-//            this.cf = cf;
-//            this.snapshot = snapshot;
-//            this.version = version;
-//        }
 
         public static Options parseArgs(String cmdArgs[])
         {
@@ -283,23 +243,22 @@ public class StandaloneDowngrader
                 }
 
                 String[] args = cmd.getArgs();
-                if (!cmd.hasOption(DOWNGRADE_ALL))
+                if (args.length >= 4 || args.length < 2)
                 {
-                    String msg = "you need to add --all option to start the downgrade";
+                    String msg = args.length < 2 ? "Missing arguments" : "Too many arguments";
                     errorMsg(msg, options);
                     System.exit(1);
                 }
 
-//                String keyspace = args[0];
-//                String cf = args[1];
-//                String version = args[2];
-//                String snapshot = (args.length == 4) ? args[3] : null;
+                String keyspace = args[0];
+                String cf = args[1];
+                String snapshot = null;
+                if (args.length == 3)
+                    snapshot = args[2];
 
+                Options opts = new Options(keyspace, cf, snapshot);
 
-                Options opts = new Options();
-
-//                opts.debug = cmd.hasOption(DEBUG_OPTION);
-                //opts.keepSource = cmd.hasOption(KEEP_SOURCE);
+                opts.debug = cmd.hasOption(DEBUG_OPTION);
 
                 return opts;
             }
@@ -320,10 +279,9 @@ public class StandaloneDowngrader
         private static CmdLineOptions getCmdLineOptions()
         {
             CmdLineOptions options = new CmdLineOptions();
-            options.addOption(null, DEBUG_OPTION,          "display stack traces");
-            options.addOption("h",  HELP_OPTION,           "display this help message");
-            options.addOption("a",  DOWNGRADE_ALL,           "do not delete the source sstables");
-            options.addOption("k",  KEEP_SOURCE,           "do not delete the source sstables");
+            options.addOption(null, DEBUG_OPTION, "display stack traces");
+            options.addOption("h", HELP_OPTION, "display this help message");
+
             return options;
         }
 
@@ -332,18 +290,71 @@ public class StandaloneDowngrader
             String usage = String.format("%s [options] <keyspace> <cf> [snapshot]", TOOL_NAME);
             StringBuilder header = new StringBuilder();
             header.append("--\n");
-            header.append("Downgrade the sstables in the given cf (or snapshot) to the current version of Cassandra." );
-            header.append("This operation will rewrite the sstables in the specified cf to match the " );
-            header.append("currently installed version of Cassandra.\n");
-            header.append("The snapshot option will only upgrade the specified snapshot. Upgrading " );
-            header.append("snapshots is required before attempting to restore a snapshot taken in a " );
-            header.append("major version older than the major version Cassandra is currently running. " );
-            header.append("This will replace the files in the given snapshot as well as break any " );
-            header.append("hard links to live sstables." );
+            header.append("Downgrade the sstables in the given cf (or snapshot) to the current version of Cassandra.");
+            header.append("This operation will rewrite the sstables in the specified cf to match the ");
+            header.append("previous installed version of Cassandra.\n");
+            header.append("The snapshot option will only downgrade the specified snapshot.");
             header.append("\n--\n");
             header.append("Options are:");
             new HelpFormatter().printHelp(usage, header.toString(), options, "");
         }
     }
-}
 
+    public static void deleteObsoleteSSTables(ColumnFamilyStore cfs, Collection<SSTableReader> sstables)
+    {
+        Directories directories = cfs.getDirectories();
+
+        List<File> driec = directories.getCFDirectories();
+        for (File dri : driec)
+        {
+
+            try {
+                // Use Files.walk to iterate over each file in the directory
+                Files.walk(dri.toPath())
+                     .filter(Files::isRegularFile) // Filter out directories, we only want files
+                     .filter(path -> path.getFileName().toString().contains("oa")) // Filter files starting with "oa_"
+                     .forEach(path -> {
+                         try {
+                             Files.delete(path); // Delete the file
+                         } catch (IOException e) {
+                             e.printStackTrace();
+                         }
+                     });
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        // Filter and delete obsolete SSTables
+        for (SSTableReader sstable : sstables)
+        {
+            if (!sstable.descriptor.version.equals(DatabaseDescriptor.getSelectedSSTableFormat().getLatestVersion()))
+            {
+                continue;
+            }
+
+
+            // Get all components of the SSTable
+            Set<Component> components = sstable.getComponents();
+
+            // Delete all components
+            for (Component component : components)
+            {
+                File componentFile = new File(String.valueOf(sstable.descriptor.fileFor(component)));
+                if (componentFile.exists())
+                {
+                    FileUtils.delete(componentFile);
+                }
+            }
+
+            // Remove the SSTable from the tracker
+            //cfs.getTracker().dropSSTables();
+        }
+
+
+
+
+
+    }
+
+}

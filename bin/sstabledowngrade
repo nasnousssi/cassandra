@@ -46,11 +46,7 @@ fi
         -Dlogback.configurationFile=logback-tools.xml \
         org.apache.cassandra.tools.StandaloneDowngrader "$@"
 
-echo "storageeeeeeeeeeeeeeeeeeeeeeeeeeeeee_dir"
-echo $cassandra_storagedir
-find $cassandra_storagedir/data -type f -name "oa*" -exec rm -f {} \;
-#find $cassandra_storagedir/data -type f -name "nb_txn_downgradesstables*" -exec rm -f {} \;
-find $cassandra_storagedir/data/system/compaction_history* -type f -name "*" -exec rm -f {} \;
+
 
 
 
